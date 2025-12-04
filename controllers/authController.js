@@ -1,63 +1,8 @@
-// // controllers/authController.js (or wherever login is)
-// const bcrypt = require('bcrypt');
-// const User = require('../models/userModel');
-
-// exports.login = (req, res) => {
-//     try {
-//         // Accept both JSON body and form fields (hidden form uses "username" and "email")
-//         const email = (req.body.email || req.body.username || "").toString().trim();
-//         const password = (req.body.password || "").toString();
-
-//         if (!email || !password) {
-//             return res.status(400).json({ message: 'Please provide email and password' });
-//         }
-
-//         User.findByEmail(email, (err, results) => {
-//             if (err) {
-//                 console.error("DB error in findByEmail:", err);
-//                 return res.status(500).json({ message: 'Database error' });
-//             }
-
-//             if (!results || results.length === 0) {
-//                 return res.status(401).json({ message: 'Invalid email or password' });
-//             }
-
-//             const user = results[0];
-
-//             const hashedPassword = user.password || "";
-//             // ensure hashedPassword is a string before passing to bcrypt
-//             bcrypt.compare(password, hashedPassword, (err, isMatch) => {
-//                 if (err) {
-//                     console.error("bcrypt.compare error:", err);
-//                     return res.status(500).json({ message: 'Server error' });
-//                 }
-
-//                 if (!isMatch) {
-//                     return res.status(401).json({ message: 'Invalid email or password' });
-//                 }
-
-//                 // Successful login — return safe user object
-//                 return res.status(200).json({
-//                     message: 'Login successful',
-//                     user: {
-//                         id: user.id,
-//                         username: user.username,
-//                         email: user.email,
-//                         role: user.role_name || user.role || null,
-//                         device_id: user.device_id || null,
-//                     },
-//                 });
-//             });
-//         });
-//     } catch (err) {
-//         // Catch any unexpected errors and log them
-//         console.error("Unexpected login error:", err);
-//         return res.status(500).json({ message: 'Internal Server Error' });
-//     }
-// };
-
+// controllers/authController.js
 const bcrypt = require('bcrypt');
 const User = require('../models/userModel');
+const crypto = require('crypto');
+const sendEmail = require('../utils/emailService');
 
 exports.login = (req, res) => {
     try {
@@ -111,4 +56,87 @@ exports.login = (req, res) => {
         console.error("Unexpected Error:", err);
         return res.status(500).json({ message: 'Internal Server Error' });
     }
+};
+
+exports.forgotPassword = (req, res) => {
+    const { email } = req.body;
+
+    if (!email) {
+        return res.status(400).json({ message: 'Please provide an email address' });
+    }
+
+    User.findByEmail(email, (err, results) => {
+        if (err || !results || results.length === 0) {
+            // Security: Don't reveal if user exists
+            return res.status(200).json({ message: 'If that email exists, a reset link has been sent.' });
+        }
+
+        const user = results[0];
+
+        // Generate Token
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+        const resetExpires = new Date(Date.now() + 30 * 60 * 1000); // 30 mins
+
+        // Save to DB
+        User.saveResetToken(email, resetTokenHash, resetExpires, async (err) => {
+            if (err) {
+                return res.status(500).json({ message: 'Database error saving token' });
+            }
+
+            // Send Email
+            const resetUrl = `http://localhost:5173/reset-password/${resetToken}`;
+            const message = `You requested a password reset. Please go to this link to reset your password:\n\n${resetUrl}\n\nThis link expires in 30 minutes.`;
+
+            try {
+                await sendEmail({
+                    email: user.email,
+                    subject: 'Password Reset Request',
+                    message: message
+                });
+
+                res.status(200).json({ message: 'Reset link sent to email' });
+            } catch (error) {
+                console.error("Email send error:", error);
+                // Cleanup token if email fails
+                User.saveResetToken(email, null, null, () => { });
+                return res.status(500).json({ message: 'Email could not be sent' });
+            }
+        });
+    });
+};
+
+exports.resetPassword = (req, res) => {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!password) {
+        return res.status(400).json({ message: 'Please provide a new password' });
+    }
+
+    const resetTokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    User.findByResetToken(resetTokenHash, (err, results) => {
+        if (err || !results || results.length === 0) {
+            return res.status(400).json({ message: 'Invalid or expired token' });
+        }
+
+        const user = results[0];
+
+        // Hash new password
+        bcrypt.hash(password, 10, (err, hashedPassword) => {
+            if (err) {
+                return res.status(500).json({ message: 'Error hashing password' });
+            }
+
+            // Update User
+            User.updatePassword(user.id, hashedPassword, (err) => {
+                if (err) {
+                    return res.status(500).json({ message: 'Error updating password' });
+                }
+
+                res.status(200).json({ message: 'Password reset successful' });
+            });
+        });
+    });
 };

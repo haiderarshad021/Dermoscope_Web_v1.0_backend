@@ -62,6 +62,25 @@ const User = {
     delete: (id, callback) => {
         const query = 'DELETE FROM users WHERE id = ?';
         db.query(query, [id], callback);
+    },
+
+    saveResetToken: (email, token, expires, callback) => {
+        const query = 'UPDATE users SET reset_password_token = ?, reset_password_expires = ? WHERE email = ?';
+        db.query(query, [token, expires, email], callback);
+    },
+
+    findByResetToken: (token, callback) => {
+        const query = `
+            SELECT * FROM users 
+            WHERE reset_password_token = ? 
+            AND reset_password_expires > NOW()
+        `;
+        db.query(query, [token], callback);
+    },
+
+    updatePassword: (id, password, callback) => {
+        const query = 'UPDATE users SET password = ?, reset_password_token = NULL, reset_password_expires = NULL WHERE id = ?';
+        db.query(query, [password, id], callback);
     }
 };
 
