@@ -86,7 +86,7 @@ exports.forgotPassword = (req, res) => {
 
             // Send Email
             const resetUrl = `http://localhost:5173/reset-password/${resetToken}`;
-            const message = `You requested a password reset. Please go to this link to reset your password:\n\n${resetUrl}\n\nThis link expires in 30 minutes.`;
+            const message = `You requested a password reset. Please go to this link to reset your password:\n\n${resetUrl}\n\nThis link expires in 30 minutes.\nPlease ignore this mail if you did not request a password reset.`;
 
             try {
                 await sendEmail({

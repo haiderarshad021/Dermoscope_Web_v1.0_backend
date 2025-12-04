@@ -35,6 +35,11 @@ const User = {
         db.query(query, [email], callback);
     },
 
+    findByUsername: (username, callback) => {
+        const query = 'SELECT * FROM users WHERE username = ?';
+        db.query(query, [username], callback);
+    },
+
     getAll: (callback) => {
         const query = `
             SELECT users.id, users.username, users.email, roles.name as role_name 
@@ -81,6 +86,11 @@ const User = {
     updatePassword: (id, password, callback) => {
         const query = 'UPDATE users SET password = ?, reset_password_token = NULL, reset_password_expires = NULL WHERE id = ?';
         db.query(query, [password, id], callback);
+    },
+
+    getLastClinicianUsername: (callback) => {
+        const query = "SELECT username FROM users WHERE username LIKE 'CutiScope_Dev_%' ORDER BY username DESC LIMIT 1";
+        db.query(query, callback);
     }
 };
 
