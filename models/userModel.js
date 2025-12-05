@@ -40,6 +40,11 @@ const User = {
         db.query(query, [username], callback);
     },
 
+    findById: (id, callback) => {
+        const query = 'SELECT * FROM users WHERE id = ?';
+        db.query(query, [id], callback);
+    },
+
     getAll: (callback) => {
         const query = `
             SELECT users.id, users.username, users.email, roles.name as role_name 
@@ -89,7 +94,7 @@ const User = {
     },
 
     getLastClinicianUsername: (callback) => {
-        const query = "SELECT username FROM users WHERE username LIKE 'CutiScope_Dev_%' ORDER BY username DESC LIMIT 1";
+        const query = "SELECT username FROM users WHERE username LIKE 'CutiScope_Dev_%' ORDER BY id DESC LIMIT 1";
         db.query(query, callback);
     }
 };

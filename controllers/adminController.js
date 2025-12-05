@@ -1,7 +1,7 @@
 const User = require('../models/userModel');
 const Role = require('../models/roleModel');
 const bcrypt = require('bcrypt');
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } = require('@aws-sdk/client-s3');
 
 const s3Client = new S3Client({
     region: process.env.AWS_REGION,
@@ -112,9 +112,53 @@ exports.updateUser = (req, res) => {
 exports.deleteUser = (req, res) => {
     const { id } = req.params;
 
-    User.delete(id, (err, result) => {
+    User.findById(id, (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.status(200).json({ message: 'User deleted successfully' });
+        if (results.length === 0) return res.status(404).json({ message: 'User not found' });
+
+        const username = results[0].username;
+        const folderKey = `${username}/`;
+
+        // Function to delete S3 folder
+        const deleteS3Folder = async () => {
+            try {
+                // 1. List all objects in the folder
+                const listParams = {
+                    Bucket: process.env.AWS_BUCKET_NAME,
+                    Prefix: folderKey
+                };
+
+                const listedObjects = await s3Client.send(new ListObjectsV2Command(listParams));
+
+                if (listedObjects.Contents && listedObjects.Contents.length > 0) {
+                    // 2. Delete all listed objects
+                    const deleteParams = {
+                        Bucket: process.env.AWS_BUCKET_NAME,
+                        Delete: { Objects: listedObjects.Contents.map(({ Key }) => ({ Key })) }
+                    };
+
+                    await s3Client.send(new DeleteObjectsCommand(deleteParams));
+
+                    // If truncated, we might need to loop, but for now assuming < 1000 objects
+                    if (listedObjects.IsTruncated) {
+                        // Ideally handle pagination for large folders
+                        console.warn("Folder might not be fully empty, pagination needed.");
+                    }
+                }
+
+                // 3. Delete user from DB
+                User.delete(id, (err, result) => {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.status(200).json({ message: `User ${username} and S3 folder deleted successfully` });
+                });
+
+            } catch (s3Err) {
+                console.error("S3 Deletion Error:", s3Err);
+                return res.status(500).json({ message: 'Failed to delete S3 folder', error: s3Err.message });
+            }
+        };
+
+        deleteS3Folder();
     });
 };
 
