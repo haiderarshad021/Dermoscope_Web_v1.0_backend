@@ -180,3 +180,52 @@ exports.getNextUsername = (req, res) => {
         res.status(200).json({ username: nextUsername });
     });
 };
+
+exports.getDashboardData = async (req, res) => {
+    try {
+        // 1. Fetch all clinicians
+        User.getAll(async (err, users) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            // 2. List top-level folders in S3 to check existence efficiently
+            const command = new ListObjectsV2Command({
+                Bucket: process.env.AWS_BUCKET_NAME,
+                Delimiter: '/'
+            });
+
+            const s3Data = await s3Client.send(command);
+            const existingFolders = new Set();
+
+            if (s3Data.CommonPrefixes) {
+                s3Data.CommonPrefixes.forEach(prefix => {
+                    // S3 returns "prefix/", we want just "prefix" to match username
+                    // logic: username/ -> remove last char
+                    let folderName = prefix.Prefix;
+                    if (folderName.endsWith('/')) {
+                        folderName = folderName.slice(0, -1);
+                    }
+                    existingFolders.add(folderName);
+                });
+            }
+
+            // 3. Map users to status
+            // Filter only clinicians for the dashboard view usually? 
+            // The prompt said "fetch the username and email... of that user(s)" implying all or at least the ones managed.
+            // SuperAdminPanel fetches clinicians usually.
+
+            const dashboardData = users
+                .filter(u => u.role_name === 'clinician')
+                .map(user => ({
+                    id: user.id,
+                    username: user.username,
+                    email: user.email,
+                    hasFolder: existingFolders.has(user.username)
+                }));
+
+            res.status(200).json(dashboardData);
+        });
+    } catch (error) {
+        console.error("Dashboard Data Error:", error);
+        res.status(500).json({ message: "Failed to fetch dashboard data", error: error.message });
+    }
+};
