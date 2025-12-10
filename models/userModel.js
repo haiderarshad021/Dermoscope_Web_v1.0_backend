@@ -16,7 +16,7 @@ const User = {
         `;
         db.query(query, (err) => {
             if (err) console.error('Error creating users table:', err);
-            else console.log('Users table created or already exists');
+            //else console.log('Users table created or already exists');
         });
     },
 

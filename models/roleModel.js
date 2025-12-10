@@ -10,7 +10,7 @@ const Role = {
     `;
         db.query(query, (err, result) => {
             if (err) console.error('Error creating roles table:', err);
-            else console.log('Roles table checked/created successfully');
+            // else console.log('Roles table checked/created successfully');
         });
     },
 
