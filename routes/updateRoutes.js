@@ -7,7 +7,7 @@ const updateController = require('../controllers/updateController');
 // Multer Storage Configuration
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'uploads/apk/');
+        cb(null, path.join(__dirname, '../uploads/apk'));
     },
     filename: (req, file, cb) => {
         // defined unique filename
@@ -30,7 +30,14 @@ const upload = multer({
 });
 
 // Routes
-router.post('/upload', upload.single('apk'), updateController.uploadUpdate);
+router.post('/upload', (req, res, next) => {
+    upload.single('apk')(req, res, (err) => {
+        if (err) {
+            return res.status(500).json({ message: err.message });
+        }
+        next();
+    });
+}, updateController.uploadUpdate);
 router.get('/latest', updateController.getLatestUpdate);
 router.get('/history', updateController.getAllUpdates);
 

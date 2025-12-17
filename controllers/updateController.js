@@ -27,7 +27,7 @@ exports.uploadUpdate = (req, res) => {
     const checksum = hashSum.digest('hex');
 
     const updateData = {
-        versionCode,
+        versionCode: parseInt(versionCode, 10),
         versionName,
         apkUrl: fileUrl,
         checksum,
