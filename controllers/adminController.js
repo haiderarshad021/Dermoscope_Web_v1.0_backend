@@ -1,7 +1,7 @@
 const User = require('../models/userModel');
 const Role = require('../models/roleModel');
 const bcrypt = require('bcrypt');
-const { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 
 const s3Client = new S3Client({
     region: process.env.AWS_REGION,
@@ -224,8 +224,116 @@ exports.getDashboardData = async (req, res) => {
 
             res.status(200).json(dashboardData);
         });
+
     } catch (error) {
         console.error("Dashboard Data Error:", error);
         res.status(500).json({ message: "Failed to fetch dashboard data", error: error.message });
     }
+};
+
+const multer = require('multer');
+const storage = multer.memoryStorage();
+exports.uploadMiddleware = multer({ storage: storage }).single('apk');
+
+const AppUpdate = require('../models/appUpdateModel');
+
+exports.uploadApk = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: "No file uploaded" });
+        }
+
+        const { version, release_notes, force_update } = req.body;
+        if (!version) {
+            return res.status(400).json({ message: "Version is required" });
+        }
+
+        // 1. Generate Unique Filename
+        const timestamp = Date.now();
+        const filename = `${timestamp}-${req.file.originalname}`;
+        const apkKey = `apk/${filename}`; // Relative path for DB and S3 Key
+
+        // 2. Upload APK to S3
+        await s3Client.send(new PutObjectCommand({
+            Bucket: process.env.AWS_BUCKET_NAME,
+            Key: apkKey,
+            Body: req.file.buffer,
+            ContentType: "application/vnd.android.package-archive"
+        }));
+
+        // 3. Save to Database
+        const updateData = {
+            version_code: Math.floor(timestamp / 1000), // Simple valid integer
+            version_name: version,
+            apk_url: `/${apkKey}`, // Store relative path as per existing data
+            checksum: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", // Mock checksum for now
+            release_notes: release_notes || "No release notes",
+            force_update: force_update === 'true' || force_update === true ? 1 : 0
+        };
+
+        AppUpdate.create(updateData, (err, result) => {
+            if (err) {
+                console.error("DB Insert Error:", err);
+                return res.status(500).json({ message: "Failed to save update to database", error: err.message });
+            }
+
+            // Construct full URL for response
+            const fullUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com${updateData.apk_url}`;
+
+            res.status(200).json({
+                message: "APK uploaded successfully",
+                version: {
+                    version: updateData.version_name,
+                    lastUpdated: new Date().toISOString(),
+                    url: fullUrl
+                }
+            });
+        });
+
+    } catch (error) {
+        console.error("APK Upload Error:", error);
+        res.status(500).json({ message: "Failed to upload APK", error: error.message });
+    }
+};
+
+exports.getApkVersion = async (req, res) => {
+    AppUpdate.getLatest((err, results) => {
+        if (err) {
+            console.error("Get APK Version Error:", err);
+            return res.status(500).json({ error: err.message });
+        }
+
+        if (results.length === 0) {
+            return res.status(200).json({ version: '0.0.0', lastUpdated: null });
+        }
+
+        const latest = results[0];
+        // Construct full URL from relative path in DB
+        // Assuming DB stores "/apk/..." and we need https://bucket.s3.region.amazonaws.com/apk/...
+        // Or if apk_url is just the key "apk/...", we prepend slash. 
+        // Based on screenshot, it starts with /apk/...
+
+        // Remove leading slash for S3 URL construction if present for standard S3 URLs, 
+        // OR just append to domain.
+        // https://bucket.s3.region.amazonaws.com/apk/file.apk
+
+        const relativePath = latest.apk_url.startsWith('/') ? latest.apk_url : `/${latest.apk_url}`;
+        const fullUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com${relativePath}`;
+
+        res.status(200).json({
+            version: latest.version_name,
+            lastUpdated: latest.created_at,
+            url: fullUrl
+        });
+    });
+};
+
+exports.getAllAppUpdates = (req, res) => {
+    AppUpdate.getAll((err, results) => {
+        if (err) {
+            console.error("Fetch History Error:", err);
+            return res.status(500).json({ message: "Failed to fetch update history", error: err.message });
+        }
+        res.status(200).json(results);
+    });
 };
