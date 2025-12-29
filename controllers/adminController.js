@@ -181,6 +181,11 @@ exports.getNextUsername = (req, res) => {
     });
 };
 
+const sanitizeForS3 = (name) => {
+    if (!name) return "";
+    return name.toLowerCase().replace(/[^a-z0-9_-]/g, '').substring(0, 50);
+};
+
 exports.getDashboardData = async (req, res) => {
     try {
         // 1. Fetch all clinicians
@@ -209,18 +214,20 @@ exports.getDashboardData = async (req, res) => {
             }
 
             // 3. Map users to status
-            // Filter only clinicians for the dashboard view usually? 
-            // The prompt said "fetch the username and email... of that user(s)" implying all or at least the ones managed.
-            // SuperAdminPanel fetches clinicians usually.
-
+            // Check both strict username AND sanitized username
             const dashboardData = users
                 .filter(u => u.role_name === 'clinician')
-                .map(user => ({
-                    id: user.id,
-                    username: user.username,
-                    email: user.email,
-                    hasFolder: existingFolders.has(user.username)
-                }));
+                .map(user => {
+                    const sanitized = sanitizeForS3(user.username);
+                    const hasFolder = existingFolders.has(user.username) || existingFolders.has(sanitized);
+
+                    return {
+                        id: user.id,
+                        username: user.username,
+                        email: user.email,
+                        hasFolder: hasFolder
+                    };
+                });
 
             res.status(200).json(dashboardData);
         });
