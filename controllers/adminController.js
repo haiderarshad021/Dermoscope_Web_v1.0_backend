@@ -270,7 +270,7 @@ exports.uploadApk = async (req, res) => {
 
         // 3. Save to Database
         const updateData = {
-            versionCode: Math.floor(timestamp / 1000), // camelCase for updateModel.js
+            versionCode: parseInt(version, 10), // Use the user-provided, single-number version (1, 2, 3...)
             versionName: version,
             apkUrl: `/${apkKey}`,
             checksum: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",

@@ -43,7 +43,7 @@ const AppUpdate = {
     getLatest: (callback) => {
         const query = `
             SELECT * FROM app_updates 
-            ORDER BY version_code DESC 
+            ORDER BY id DESC 
             LIMIT 1
         `;
         db.query(query, callback);
