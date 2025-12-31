@@ -12,10 +12,8 @@ const path = require('path');
 const app = express();
 
 // CORS setup — explicit origin required when using credentials
-app.use(cors({
-  origin: "http://localhost:5173", // change to your frontend URL in prod
-  credentials: true
-}));
+// CORS setup - Allow all for mobile dev
+app.use(cors());
 
 // Body parsers
 app.use(express.json()); // parse application/json

@@ -242,7 +242,7 @@ const multer = require('multer');
 const storage = multer.memoryStorage();
 exports.uploadMiddleware = multer({ storage: storage }).single('apk');
 
-const AppUpdate = require('../models/appUpdateModel');
+const AppUpdate = require('../models/updateModel');
 
 exports.uploadApk = async (req, res) => {
     try {
@@ -270,12 +270,13 @@ exports.uploadApk = async (req, res) => {
 
         // 3. Save to Database
         const updateData = {
-            version_code: Math.floor(timestamp / 1000), // Simple valid integer
-            version_name: version,
-            apk_url: `/${apkKey}`, // Store relative path as per existing data
-            checksum: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", // Mock checksum for now
-            release_notes: release_notes || "No release notes",
-            force_update: force_update === 'true' || force_update === true ? 1 : 0
+            versionCode: Math.floor(timestamp / 1000), // camelCase for updateModel.js
+            versionName: version,
+            apkUrl: `/${apkKey}`,
+            checksum: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            releaseNotes: release_notes || "No release notes",
+            forceUpdate: force_update === 'true' || force_update === true ? 1 : 0,
+            createdBy: req.user ? req.user.id : null // Add createdBy if available
         };
 
         AppUpdate.create(updateData, (err, result) => {
@@ -303,8 +304,10 @@ exports.uploadApk = async (req, res) => {
     }
 };
 
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+
 exports.getApkVersion = async (req, res) => {
-    AppUpdate.getLatest((err, results) => {
+    AppUpdate.getLatest(async (err, results) => {
         if (err) {
             console.error("Get APK Version Error:", err);
             return res.status(500).json({ error: err.message });
@@ -315,23 +318,43 @@ exports.getApkVersion = async (req, res) => {
         }
 
         const latest = results[0];
-        // Construct full URL from relative path in DB
-        // Assuming DB stores "/apk/..." and we need https://bucket.s3.region.amazonaws.com/apk/...
-        // Or if apk_url is just the key "apk/...", we prepend slash. 
-        // Based on screenshot, it starts with /apk/...
+        // apk_url is stored as relative path e.g. "/apk/filename.apk" or "apk/filename.apk"
+        // We need the key without leading slash for S3 operations
+        let key = latest.apk_url;
+        if (key.startsWith('/')) {
+            key = key.substring(1);
+        }
 
-        // Remove leading slash for S3 URL construction if present for standard S3 URLs, 
-        // OR just append to domain.
-        // https://bucket.s3.region.amazonaws.com/apk/file.apk
+        try {
+            const command = new GetObjectCommand({
+                Bucket: process.env.AWS_BUCKET_NAME,
+                Key: key,
+            });
 
-        const relativePath = latest.apk_url.startsWith('/') ? latest.apk_url : `/${latest.apk_url}`;
-        const fullUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com${relativePath}`;
+            // Generate presigned URL valid for 1 hour
+            const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
 
-        res.status(200).json({
-            version: latest.version_name,
-            lastUpdated: latest.created_at,
-            url: fullUrl
-        });
+            res.status(200).json({
+                version: latest.version_name,
+                versionCode: latest.version_code,
+                forceUpdate: latest.force_update === 1,
+                releaseNotes: latest.release_notes,
+                lastUpdated: latest.created_at,
+                url: signedUrl
+            });
+        } catch (signErr) {
+            console.error("Error generating signed URL:", signErr);
+            // Fallback for public buckets if signing fails (though unlikely)
+            const fullUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+            res.status(200).json({
+                version: latest.version_name,
+                versionCode: latest.version_code,
+                forceUpdate: latest.force_update === 1,
+                releaseNotes: latest.release_notes,
+                lastUpdated: latest.created_at,
+                url: fullUrl
+            });
+        }
     });
 };
 
